@@ -1,16 +1,22 @@
 package ai.moa.app
 
 import ai.moa.app.storage.FamilyCardStore
+import ai.moa.core.FamilyCard
 import android.graphics.Bitmap
 import android.os.SystemClock
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
+import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
@@ -18,6 +24,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 
@@ -130,6 +137,92 @@ class MoaJourneyTest {
         click("보관함 0", scroll = false)
         compose.onNodeWithText("아직 저장한 카드가 없어요.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("구름은 왜 움직여?").assertDoesNotExist()
+    }
+
+    @Test fun unfinishedQuestionSurvivesBackgroundPauseButIsClearedWhenJourneyEnds() {
+        beginJourney()
+        val input = compose.onNodeWithText("궁금한 것을 적어 주세요")
+        input.performScrollTo().performTextInput("공룡은 왜 사라졌어?")
+        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.waitForIdle()
+        compose.onNodeWithText("궁금한 것을 적어 주세요").assertDoesNotExist()
+        click("보호자가 다시 시작하기")
+        input.performScrollTo().assertTextContains("공룡은 왜 사라졌어?")
+        click("종료", scroll = false)
+        compose.onNodeWithText("마치기").performClick()
+        click("보호자와 함께 시작하기  →")
+        input.performScrollTo().assertTextContains("")
+        compose.onNodeWithText("질문 확인").assertIsNotEnabled()
+        compose.onNodeWithText("보관함 0").assertIsDisplayed()
+    }
+
+    @Test fun clarificationAndEditedDraftSurviveRestrictionAndHandoffUsesLatestText() {
+        beginJourney()
+        val input = compose.onNodeWithText("궁금한 것을 적어 주세요")
+        input.performScrollTo().performTextInput("구름의 무게는 얼마야?")
+        click("질문 확인")
+        input.performScrollTo().performTextReplacement("공룡은 왜 사라졌어?")
+        click("주행 제한")
+        click("허용")
+        click("보호자가 다시 시작하기")
+        input.performScrollTo().assertTextContains("공룡은 왜 사라졌어?")
+        compose.onNodeWithText("‘구름은 왜 움직여?’가 궁금한 거야?", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("확인 1 / 2", substring = true).assertIsDisplayed()
+        input.performScrollTo().performTextReplacement("")
+        compose.onNodeWithText("가족과 함께 알아볼 질문으로 남기기  →")
+            .performScrollTo().assertIsNotEnabled()
+        input.performScrollTo().performTextReplacement("공룡은 왜 사라졌어?")
+        click("가족과 함께 알아볼 질문으로 남기기  →")
+        compose.onNodeWithText("공룡은 왜 사라졌어?").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("구름의 무게는 얼마야?").assertDoesNotExist()
+        click("보호자가 이 카드 저장하기")
+        val saved = FamilyCardStore(InstrumentationRegistry.getInstrumentation().targetContext).all().single()
+        org.junit.Assert.assertEquals("공룡은 왜 사라졌어?", saved.card.question)
+    }
+
+    @Test fun unreadableLibraryIsPreservedUntilGuardianConfirmsClearing() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = File(context.filesDir, "moa_family_cards.json")
+        file.writeText("{broken json")
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        click("시연 모드 시작")
+        click("보관함 확인 필요", scroll = false)
+        compose.onNodeWithText("보관함을 불러오지 못했어요.", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("아직 저장한 카드가 없어요.").assertDoesNotExist()
+        click("다시 불러오기")
+        org.junit.Assert.assertEquals("{broken json", file.readText())
+        compose.onNodeWithText("모두 지우기").performClick()
+        compose.onNodeWithText("취소").performClick()
+        org.junit.Assert.assertEquals("{broken json", file.readText())
+        compose.onNodeWithText("모두 지우기").performClick()
+        compose.onNodeWithText("모두 지우기").performClick()
+        compose.onNodeWithText("아직 저장한 카드가 없어요.").assertIsDisplayed()
+        org.junit.Assert.assertFalse(file.exists())
+        compose.onNodeWithText("닫기").performClick()
+        compose.onNodeWithText("보관함 0").assertIsDisplayed()
+    }
+
+    @Test fun deletingFromPartlyDamagedLibraryShowsAnErrorWithoutChangingTheFile() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        FamilyCardStore(context).save(FamilyCard("공룡은 왜 사라졌어?", "함께 알아볼 질문", emptyList(), "어디서 함께 알아볼까?", true))
+        val file = File(context.filesDir, "moa_family_cards.json")
+        val document = JSONObject(file.readText())
+        document.getJSONArray("cards").put("unreadable record")
+        val damaged = document.toString()
+        file.writeText(damaged)
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        click("시연 모드 시작")
+        click("보관함 1", scroll = false)
+        click("지우기")
+        compose.onNodeWithText("이 카드를 지울까요?").assertIsDisplayed()
+        compose.onAllNodesWithText("지우기").onLast().performClick()
+        compose.onNodeWithText("카드를 지우지 못했어요.", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("다시 불러오기").performScrollTo().assertIsDisplayed()
+        org.junit.Assert.assertEquals(damaged, file.readText())
     }
 
     private fun beginJourney() {

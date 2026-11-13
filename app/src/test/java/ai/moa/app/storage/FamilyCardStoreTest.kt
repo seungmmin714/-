@@ -65,12 +65,24 @@ class FamilyCardStoreTest {
         assertEquals(card, FamilyCardStore(context).all().single().card)
     }
 
-    @Test fun `malformed or unsupported documents are safe to read and can be replaced explicitly`() {
-        file.writeText("{broken json")
-        assertTrue(store.all().isEmpty())
-        file.writeText("{\"version\":999,\"cards\":[]}")
-        assertTrue(store.all().isEmpty())
-        file.writeText(" ".repeat(512_001))
+    @Test fun `unreadable documents reject reads and mutations without overwriting original data`() {
+        val oversizedEntries = JSONArray().apply { repeat(101) { put(JSONObject()) } }
+        listOf(
+            "{broken json",
+            "{\"version\":999,\"cards\":[]}",
+            "{\"version\":1.5,\"cards\":[]}",
+            "{\"version\":1}",
+            " ".repeat(512_001),
+            JSONObject().put("version", 1).put("cards", oversizedEntries).toString(),
+        ).forEach { original ->
+            file.writeText(original)
+            assertThrows(IOException::class.java) { store.all() }
+            assertThrows(IOException::class.java) { store.save(sample) }
+            assertThrows(IOException::class.java) { store.delete("unknown-id") }
+            assertEquals(original, file.readText())
+        }
+        // Explicitly clearing is the only operation allowed to discard unreadable data.
+        store.clear()
         assertTrue(store.all().isEmpty())
         val saved = store.save(sample)
         assertEquals(saved, store.all().single())
@@ -82,9 +94,45 @@ class FamilyCardStoreTest {
         document.getJSONArray("cards").put(JSONObject().put("id", "wrong").put("question", "broken"))
         file.writeText(document.toString())
         assertEquals(listOf(saved), store.all())
+        val partiallyReadable = file.readText()
+        assertThrows(IOException::class.java) { store.save(sample) }
+        assertThrows(IOException::class.java) { store.delete(saved.id) }
+        assertEquals(partiallyReadable, file.readText())
         val validEntry = document.getJSONArray("cards").getJSONObject(0)
         validEntry.put("choices", JSONArray().put("one").put("two").put("three"))
         file.writeText(document.toString())
+        assertThrows(IOException::class.java) { store.all() }
+    }
+
+    @Test fun `an unreadable storage path is reported without deleting its contents`() {
+        assertTrue(file.mkdir())
+        val marker = File(file, "existing-data")
+        marker.writeText("keep me")
+        try {
+            assertThrows(IOException::class.java) { store.all() }
+            assertThrows(IOException::class.java) { store.save(sample) }
+            assertThrows(IOException::class.java) { store.delete("unknown-id") }
+            assertEquals("keep me", marker.readText())
+        } finally {
+            assertTrue(marker.delete())
+            assertTrue(file.delete())
+        }
+    }
+
+    @Test fun `a backup is recovered and an orphan pending write is not treated as empty`() {
+        val saved = store.save(sample)
+        val backup = File(file.path + ".bak")
+        assertTrue(file.renameTo(backup))
+        assertEquals(listOf(saved), store.all())
+        assertFalse(backup.exists())
+
+        store.clear()
+        val pending = File(file.path + ".new")
+        pending.writeText("unfinished save")
+        assertThrows(IOException::class.java) { store.all() }
+        assertThrows(IOException::class.java) { store.save(sample) }
+        assertEquals("unfinished save", pending.readText())
+        store.clear()
         assertTrue(store.all().isEmpty())
     }
 

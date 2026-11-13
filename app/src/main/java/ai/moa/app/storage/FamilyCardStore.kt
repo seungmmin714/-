@@ -7,6 +7,7 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.UUID
@@ -22,7 +23,7 @@ class FamilyCardStore(context: Context) {
     private val file = File(context.applicationContext.filesDir, FILE_NAME)
     private val atomicFile = AtomicFile(file)
 
-    fun all(): List<SavedFamilyCard> = synchronized(storageLock) { readCards() }
+    fun all(): List<SavedFamilyCard> = synchronized(storageLock) { readCards(allowPartial = true) }
 
     /** Throws if input is invalid or writing fails; callers must not show a false success. */
     fun save(card: FamilyCard): SavedFamilyCard = synchronized(storageLock) {
@@ -51,27 +52,37 @@ class FamilyCardStore(context: Context) {
         }
     }
 
-    private fun readCards(): List<SavedFamilyCard> {
+    /** Reads may salvage valid records, but mutations must never discard unreadable data. */
+    private fun readCards(allowPartial: Boolean = false): List<SavedFamilyCard> {
         return try {
             val text = atomicFile.openRead().use { input ->
-                if (input.channel.size() > MAX_FILE_BYTES) return emptyList()
+                if (input.channel.size() > MAX_FILE_BYTES) throw IOException("보관함 파일이 너무 커서 읽을 수 없어요.")
                 input.readBytes().toString(Charsets.UTF_8)
             }
             val document = JSONObject(text)
-            if (document.optInt("version", -1) != SCHEMA_VERSION) return emptyList()
-            val entries = document.optJSONArray("cards") ?: return emptyList()
+            if (document.opt("version") != SCHEMA_VERSION) throw IOException("이 보관함 형식은 현재 앱에서 읽을 수 없어요.")
+            val entries = document.optJSONArray("cards") ?: throw IOException("보관함의 카드 목록을 읽을 수 없어요.")
             // Reject oversized documents instead of processing unbounded corrupt arrays.
-            if (entries.length() > MAX_CARDS) return emptyList()
+            if (entries.length() > MAX_CARDS) throw IOException("보관함의 카드 수가 허용 범위를 넘었어요.")
             val result = mutableListOf<SavedFamilyCard>()
             for (index in 0 until entries.length()) {
                 val entry = entries.optJSONObject(index) ?: continue
                 parseEntry(entry)?.let { result += it }
             }
-            result.distinctBy { it.id }.sortedByDescending { it.createdAt }
-        } catch (_: IOException) {
-            emptyList()
-        } catch (_: JSONException) {
-            emptyList()
+            val distinct = result.distinctBy { it.id }
+            if (entries.length() > 0 && (distinct.isEmpty() || (!allowPartial && distinct.size != entries.length()))) {
+                throw IOException("보관함에 읽을 수 없는 카드가 있어 변경하지 않았어요.")
+            }
+            distinct.sortedByDescending { it.createdAt }
+        } catch (error: FileNotFoundException) {
+            // AtomicFile also uses this exception for permission/path errors. Only a truly
+            // absent store is empty; pending or backup data must not be overwritten.
+            val artifacts = listOf(file, File(file.path + ".bak"), File(file.path + ".new"))
+            if (file.parentFile?.isDirectory == true && file.parentFile?.canRead() == true && artifacts.none { it.exists() }) {
+                emptyList()
+            } else throw error
+        } catch (error: JSONException) {
+            throw IOException("보관함 내용을 읽을 수 없어 변경하지 않았어요.", error)
         }
     }
 

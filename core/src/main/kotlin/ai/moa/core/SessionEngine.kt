@@ -14,6 +14,7 @@ data class SessionState(
     val choices: List<StoryChoice> = emptyList(),
     val familyCard: FamilyCard? = null,
     val pausedStage: Stage? = null,
+    val pausedMessage: String? = null,
 ) {
     val storyText: String
         get() = card?.let { StoryTemplate.text(it.subject, choices) }.orEmpty()
@@ -83,13 +84,15 @@ class SessionEngine {
         return true
     }
 
-    fun handOffQuestion(): Boolean {
-        if (!allowed(Stage.QUESTION) || state.question.isBlank()) return false
+    fun handOffQuestion(text: String = state.question): Boolean {
+        if (!allowed(Stage.QUESTION) || text.isBlank()) return false
+        val question = text.trim().take(MAX_QUESTION_LENGTH)
         state = state.copy(
             stage = Stage.FAMILY,
+            question = question,
             message = "아직 모아의 설명 카드에 없는 질문이야. 가족과 함께 알아보자.",
             familyCard = FamilyCard(
-                question = state.question, subject = "함께 알아볼 질문", choices = emptyList(),
+                question = question, subject = "함께 알아볼 질문", choices = emptyList(),
                 openQuestion = "이 질문을 가족과 어디에서 함께 알아볼까?", isHandoff = true,
             ),
         )
@@ -151,6 +154,7 @@ class SessionEngine {
         state = state.copy(
             stage = Stage.PAUSED,
             pausedStage = state.pausedStage ?: state.stage,
+            pausedMessage = state.pausedMessage ?: state.message,
             message = reason,
         )
     }
@@ -158,7 +162,7 @@ class SessionEngine {
     fun resume(): Boolean {
         if (!allowed(Stage.PAUSED)) return false
         val previous = state.pausedStage ?: return false
-        state = state.copy(stage = previous, pausedStage = null, message = "보호자가 다시 시작했어요.")
+        state = state.copy(stage = previous, pausedStage = null, message = state.pausedMessage.orEmpty(), pausedMessage = null)
         return true
     }
 

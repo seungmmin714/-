@@ -5,7 +5,6 @@ import ai.moa.app.storage.SavedFamilyCard
 import ai.moa.core.FamilyCard
 import ai.moa.core.QuestionCatalog
 import ai.moa.core.Safety
-import ai.moa.core.SessionEngine
 import ai.moa.core.Stage
 import ai.moa.core.Theme
 import androidx.activity.compose.BackHandler
@@ -113,9 +112,10 @@ fun MoaApp(controller: MoaController, onMicrophone: () -> Unit) {
         if (allowed && state.stage != Stage.PAUSED) {
             when (dialog) {
                 "settings" -> SettingsDialog(c, onDismiss = { dialog = null })
-                "library" -> LibraryDialog(c.savedCards, onDismiss = { dialog = null }, onSelect = { selectedSaved = it },
+                "library" -> LibraryDialog(c.savedCards, c.libraryError, onRetry = c::reloadSaved, onDismiss = { dialog = null }, onSelect = { selectedSaved = it },
                     onDelete = { deleteId = it }, onClear = { dialog = "clear" })
-                "clear" -> ConfirmDialog("보관함을 비울까요?", "보호자가 저장한 ${c.savedCards.size}개의 대화 카드를 이 기기에서 모두 지웁니다.", "모두 지우기",
+                "clear" -> ConfirmDialog("보관함을 비울까요?",
+                    "이 기기의 대화 카드와 보관함 파일을 모두 지웁니다. 삭제 후에는 복구할 수 없어요.", "모두 지우기",
                     onConfirm = { c.clearSaved(); dialog = "library" }, onDismiss = { dialog = "library" })
                 "end" -> ConfirmDialog("오늘의 여행을 마칠까요?", "저장하지 않은 질문과 선택은 사라져요. 따로 저장한 대화 카드는 보관함에 남아요.", "마치기",
                     onConfirm = { c.end(); dialog = null }, onDismiss = { dialog = null })
@@ -147,7 +147,7 @@ private fun AppHeader(c: MoaController, compact: Boolean, onLibrary: () -> Unit,
     }
     val actions: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = onLibrary, enabled = allowed) { Text("보관함 ${c.savedCards.size}") }
+            TextButton(onClick = onLibrary, enabled = allowed) { Text(if (c.libraryError != null) "보관함 확인 필요" else "보관함 ${c.savedCards.size}") }
             TextButton(onClick = onSettings, enabled = allowed) { Text("보호자 설정") }
             if (c.state.stage != Stage.HOME) TextButton(onClick = { if (allowed) onEnd() else c.end() }) { Text("종료") }
         }
@@ -236,15 +236,14 @@ private fun Welcome(c: MoaController) {
 
 @Composable
 private fun QuestionScreen(c: MoaController, onMicrophone: () -> Unit) {
-    var question by remember { mutableStateOf("") }
+    val question = c.questionDraft
     var search by remember { mutableStateOf("") }
     val focus = LocalFocusManager.current
-    LaunchedEffect(c.voiceInput) { if (c.voiceInput.isNotBlank()) question = c.voiceInput }
     val submit = { focus.clearFocus(); c.act { submitQuestion(question) } }
     ScreenTitle("01  질문을 꺼내요", "오는 길에 무엇이 궁금했어?", "그림 카드를 고르거나, 나만의 질문을 들려줘.")
     MoaCard {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(value = question, onValueChange = { question = it.take(SessionEngine.MAX_QUESTION_LENGTH) },
+            OutlinedTextField(value = question, onValueChange = c::editQuestion,
                 modifier = Modifier.weight(1f), label = { Text("궁금한 것을 적어 주세요") }, placeholder = { Text("예: 구름은 왜 움직여?") },
                 shape = RoundedCornerShape(18.dp), maxLines = 3, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { submit() }))
             Button(onClick = { submit() }, enabled = question.isNotBlank(), modifier = Modifier.heightIn(min = 56.dp), shape = RoundedCornerShape(16.dp)) { Text("질문 확인") }
@@ -258,7 +257,7 @@ private fun QuestionScreen(c: MoaController, onMicrophone: () -> Unit) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(c.state.message, color = Ink, fontSize = 16.sp, lineHeight = 25.sp)
                     Text("확인 ${c.state.clarificationCount} / 2 · 설명 카드 밖의 질문은 답을 지어내지 않아요.", color = Muted, fontSize = 12.sp)
-                    TextButton(onClick = { c.act { handOffQuestion() } }) { Text("가족과 함께 알아볼 질문으로 남기기  →") }
+                    TextButton(onClick = { c.act { handOffQuestion(question) } }, enabled = question.isNotBlank()) { Text("가족과 함께 알아볼 질문으로 남기기  →") }
                 }
             }
         }
@@ -424,12 +423,15 @@ private fun SettingsDialog(c: MoaController, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun LibraryDialog(cards: List<SavedFamilyCard>, onDismiss: () -> Unit, onSelect: (SavedFamilyCard) -> Unit, onDelete: (String) -> Unit, onClear: () -> Unit) {
+private fun LibraryDialog(cards: List<SavedFamilyCard>, error: String?, onRetry: () -> Unit, onDismiss: () -> Unit, onSelect: (SavedFamilyCard) -> Unit, onDelete: (String) -> Unit, onClear: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = { Text("우리 가족의 보관함") }, text = {
         Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("보호자가 이 기기에 저장한 대화 카드예요.", color = Muted)
             Text("최근 100개까지 이 기기에 보관해요.", color = Muted, fontSize = 13.sp)
-            if (cards.isEmpty()) {
+            if (error != null) {
+                Text(error, color = Ink)
+                OutlinedButton(onClick = onRetry) { Text("다시 불러오기") }
+            } else if (cards.isEmpty()) {
                 Spacer(Modifier.height(16.dp))
                 Text("아직 저장한 카드가 없어요.", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 Text("여행을 마친 뒤 마음에 남는 카드를 저장해 보세요.", color = Muted)
@@ -449,7 +451,7 @@ private fun LibraryDialog(cards: List<SavedFamilyCard>, onDismiss: () -> Unit, o
             }
         }
     }, confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } }, dismissButton = {
-        if (cards.isNotEmpty()) TextButton(onClick = onClear) { Text("모두 지우기", color = Color(0xFF9D4C44)) }
+        if (cards.isNotEmpty() || error != null) TextButton(onClick = onClear) { Text("모두 지우기", color = Color(0xFF9D4C44)) }
     })
 }
 

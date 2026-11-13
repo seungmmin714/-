@@ -147,6 +147,35 @@ class SessionEngineTest {
         assertEquals("mountain", engine.state.choices.single().id)
     }
 
+    @Test fun `clarification prompt and question survive repeated interruptions unchanged`() {
+        val engine = started()
+        engine.submitQuestion("구름의 무게는 얼마야?")
+        val beforePause = engine.state
+        engine.pause()
+        engine.updateSafety(Safety.UNKNOWN)
+        engine.pause("화면을 벗어났어요.")
+        engine.updateSafety(Safety.ALLOWED)
+        assertTrue(engine.resume())
+        assertEquals(beforePause, engine.state)
+        engine.submitQuestion("구름의 무게는 얼마야?")
+        assertEquals(2, engine.state.clarificationCount)
+    }
+
+    @Test fun `handoff uses the latest draft and rejects blank or paused edits`() {
+        val engine = started()
+        engine.submitQuestion("구름의 무게는 얼마야?")
+        val beforeBlank = engine.state
+        assertFalse(engine.handOffQuestion("  "))
+        assertEquals(beforeBlank, engine.state)
+        engine.pause()
+        assertFalse(engine.handOffQuestion("새 질문"))
+        engine.resume()
+        assertTrue(engine.handOffQuestion("  공룡은 왜 사라졌어?  "))
+        assertEquals("공룡은 왜 사라졌어?", engine.state.question)
+        assertEquals(engine.state.question, engine.state.familyCard?.question)
+        assertTrue(engine.state.familyCard!!.choices.isEmpty())
+    }
+
     @Test fun `cannot bypass story choices or inject an arbitrary choice`() {
         val engine = started()
         assertFalse(engine.startStory())

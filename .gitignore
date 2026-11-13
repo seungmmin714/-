@@ -7,6 +7,10 @@ local.properties
 .DS_Store
 *.jks
 *.keystore
+*.p12
+*.pfx
+store-password.txt
 .env*
 !*.example
 captures/
+apk/.package-release.*/

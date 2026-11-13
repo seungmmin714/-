@@ -4,9 +4,9 @@
 
 휴게·충전 중 보호자와 함께 사용하는 Kotlin/Jetpack Compose MVP입니다. 질문 카드부터 이야기의 끝, 가족 대화 카드 보관까지 기기 안에서 동작합니다.
 
-[설치용 MVP APK](https://github.com/seungmmin714/-/releases/tag/v0.1.0-mvp) · [시연 안내](docs/DEMO.md) · [콘텐츠 검토](docs/CONTENT_REVIEW.md)
+[제출용 release APK](apk/이승민_모아_release.apk) · [시연 안내](docs/DEMO.md) · [콘텐츠 검토](docs/CONTENT_REVIEW.md)
 
-![Android 에뮬레이터에서 실행한 모아의 가족 대화 카드](docs/screenshots/04-family.png)
+![Pleos Connect 2.1.0에서 실행한 제출용 release APK](docs/screenshots/pleos/02-release-family.png)
 
 [질문 화면](docs/screenshots/01-questions.png) · [사실 설명](docs/screenshots/02-fact.png) · [상상 이야기](docs/screenshots/03-story.png) · [중단 화면](docs/screenshots/07-driving-pause.png)
 
@@ -24,7 +24,31 @@
 
 구름·비·무지개·산·강·바다·나무·바람·달·별을 다룹니다. 카드 밖 질문에 사실 답변을 생성하지 않습니다.
 
-## 바로 실행하기
+## 제출 파일
+
+- 참가 형태·팀명: 개인 참가 · **이승민**
+- 앱 이름: **모아**
+- 저장소: https://github.com/seungmmin714/- (Public)
+- APK 경로: [`apk/이승민_모아_release.apk`](apk/이승민_모아_release.apk)
+- 무결성 확인: [SHA-256](apk/이승민_모아_release.apk.sha256)
+- 빌드: `release`, 패키지 `ai.moa.app`, 버전 `0.1.0`, `debuggable=false`, 전용 release 키로 서명
+
+기존 GitHub Release의 `MOA-0.1.0-demo.apk`는 개발용 시연 파일입니다. 제출 페이지에는 위 `apk/` 경로를 사용합니다. 저장소와 APK 준비는 공모전 접수 완료를 뜻하지 않습니다. 접수 시점에 `git rev-parse HEAD`로 최종 커밋 번호를 확인하고, 그 번호를 접수 메일에 기재합니다.
+
+## release APK 실행
+
+Pleos Connect 에뮬레이터 또는 지원 AAOS 기기를 연결하고 다음 명령으로 설치합니다.
+
+```sh
+adb install -r 'apk/이승민_모아_release.apk'
+adb shell am start -n ai.moa.app/ai.moa.app.MainActivity
+```
+
+차량의 이용 허용 상태에서 **보호자와 함께 시작하기**를 누릅니다. 주행 제한·상태 미확인에서는 시작되지 않고, 이미 진행 중이면 중단됩니다. 제한이 해제되어도 보호자가 재개하기 전까지 이어지지 않습니다. release에는 일반 Android 기기용 시연 스위치가 없습니다.
+
+서명 APK를 다시 만드는 방법은 [release 빌드 안내](docs/RELEASE_BUILD.md)를 참고하세요. 서명 키와 비밀번호는 저장소에 포함하지 않습니다.
+
+## 개발용 시연 실행
 
 1. Android Studio에서 이 저장소의 루트 폴더를 엽니다.
 2. Gradle JDK를 **17**로 지정하고 SDK Manager에서 **Android SDK Platform 35**를 설치합니다.
@@ -46,9 +70,23 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 실행에는 서버, API 키, 네트워크가 필요하지 않습니다. 최초 빌드에는 Gradle 및 의존성 다운로드가 필요합니다. [시연 순서와 오류 상황 확인](docs/DEMO.md)을 참고하세요.
 
+## 테스트 환경 및 필요한 설정
+
+| 항목 | 환경 |
+| --- | --- |
+| 개발 컴퓨터 | macOS · Apple Silicon |
+| 빌드 도구 | JDK 17, Android SDK Platform 35, Build-Tools 35.0.0 |
+| Pleos Connect 에뮬레이터 | **2.1.0**, Android 14 / API 34, ARM64 |
+| Pleos 화면 규격 | **2560×1440 px / 160 dpi**, RAM 4GB, Cold boot |
+| 일반 Android 회귀 테스트 | API 35 ARM64, 2560×1600 px / 320 dpi, UI 테스트 8개 |
+| 필요한 설정 | Pleos 차량 상태를 이용 허용 상태로 설정. 음성 입력은 마이크 권한과 설치된 한국어 오프라인 모델 필요 |
+| 네트워크·키 | 앱 실행에 서버·API 키 불필요. 최초 SDK·빌드 의존성 설치에는 네트워크 필요 |
+
+Pleos SDK 설치 시 공식 약관 동의가 필요합니다. [공식 설치 가이드](https://document.pleos.ai/docs/connect/guide/getting-started/application-development/setup-connect-sdk-emulator)를 참고하세요. 서명된 제출 APK로 질문·이야기·카드 저장·재실행 조회·주행 제한·수동 재개를 확인했습니다. 실제 실행 확인 결과와 범위는 [검증 기록](docs/TEST_RESULTS.md)에 남겼습니다.
+
 ## 차량·음성 연동 범위
 
-- **주행 제한:** 실제 AAOS `CarUxRestrictionsManager` 구독 코드를 구현했습니다. 상태 미확인·연결 손실은 허용하지 않으며, 속도 0으로 정차를 판단하지 않습니다. 실제 Pleos/차량 실행 검증은 남아 있습니다. 실제 감시는 API 29 이상입니다.
+- **주행 제한:** 실제 AAOS `CarUxRestrictionsManager` 구독 코드를 구현했습니다. 상태 미확인·연결 손실은 허용하지 않으며, 속도 0으로 정차를 판단하지 않습니다. Pleos Connect 2.1.0에서 정차 시 시작, 주행 제한 시 중단·플랫폼 차단, 정차 후 수동 재개를 확인했습니다. 실제 차량 검증은 남아 있으며 실제 감시는 API 29 이상입니다.
 - **조명:** 차량 Light는 아직 연결하지 않았습니다. 화면에 이를 표시하고 화면 테마만 변경합니다. 실제 조명 적용·복원은 지원과 권한 확인 후 연결해야 합니다.
 - **음성 입력:** Android API 31 이상에서 기기 내 인식기와 한국어 모델이 준비된 경우에만 사용합니다. 마이크 허용이 필요하며, 미지원 시 카드·직접 입력으로 진행합니다.
 - **음성 읽기:** 설치된 한국어 오프라인 TTS 음성만 사용합니다. 자동 재생하지 않으며, 권한·오디오 포커스·이용 상태 변화에 대응해 멈춥니다.
@@ -58,9 +96,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 데이터 처리
 
-세션은 메모리에서만 유지하고 종료 시 삭제합니다. 앱 프로세스 종료나 화면 재생성 후에는 새로 시작합니다. 원본 음성·위치·카메라 데이터를 저장하거나 외부로 보내지 않습니다.
+세션과 입력 중인 질문은 메모리에서만 유지하고 종료 시 삭제합니다. 잠시 중단했다가 보호자가 재개하면 질문 초안과 확인 안내가 복원됩니다. 앱 프로세스 종료나 화면 재생성 후에는 새로 시작합니다. 원본 음성·위치·카메라 데이터를 저장하거나 외부로 보내지 않습니다.
 
 카드 자동 저장은 꺼져 있습니다. 보호자가 저장한 카드만 앱 전용 내부 저장소에 남고, 새 저장 시 최근 100개를 넘는 오래된 카드는 제거합니다. 앱 백업은 비활성화되어 있으며 보관함에서 언제든 지울 수 있습니다. 제출 기획서 원본과 참가자 연락정보는 저장소에 포함하지 않습니다.
+
+읽을 수 없는 보관함은 빈 목록으로 취급하거나 새 카드로 덮어쓰지 않습니다. 오류 안내에서 다시 불러올 수 있고, 보호자가 전체 삭제를 확인한 경우에만 비울 수 있습니다. 일부 카드만 손상된 경우 읽을 수 있는 카드는 보여 주되 저장·개별 삭제로 손상된 데이터를 덮어쓰지는 않습니다.
 
 ## 구조
 
@@ -84,9 +124,9 @@ docs/                         시연·수용 기준·Pleos 연동 범위
 ./gradlew :app:assembleRelease
 ```
 
-코어·저장소 단위 테스트 19개가 질문 범위, 40가지 이야기 조합, 중단·수동 재개, 종료 시 삭제, 저장·삭제·100개 보관 제한과 쓰기 실패를 검증합니다. UI 테스트는 완주·저장·재실행, 범위 밖 질문, 제한·연결 손실, 저장하지 않은 종료를 다룹니다. 상세 기준은 [수용 기준](docs/ACCEPTANCE.md)을 참고하세요.
+코어·저장소 단위 테스트 23개가 질문 범위, 40가지 이야기 조합, 중단·수동 재개, 최신 질문 전달, 종료 시 삭제, 저장·삭제·100개 보관 제한과 읽기·쓰기 실패를 검증합니다. UI 테스트 8개는 완주·저장·재실행, 범위 밖 질문, 제한·연결 손실, 질문 초안 복원, 보관함 오류·명시적 초기화, 저장하지 않은 종료를 다룹니다. 상세 기준은 [수용 기준](docs/ACCEPTANCE.md)을 참고하세요.
 
-2026-11-13 검증: 단위 테스트 **19/19**, UI 테스트 **4/4** 가로·세로 화면 각각 통과, Debug/Release 빌드 성공, lint 오류 0개. [환경·제한·재현 방법](docs/TEST_RESULTS.md)
+2026-11-13 최신 검증: 단위 테스트 **23/23**, 일반 Android 가로 화면 UI 테스트 **8/8** 통과, Debug/Release 빌드 및 release 서명 검증 성공, lint 오류 0개. 이전 MVP의 세로 화면 4개 검증은 별도 이력입니다. [환경·제한·재현 방법](docs/TEST_RESULTS.md)
 
 화면 캡처를 재생성하려면 전용 일반 Android 에뮬레이터를 실행하고 `./scripts/capture-demo.sh`를 실행합니다. 이 스크립트는 시연 테스트 카드를 초기화합니다.
 

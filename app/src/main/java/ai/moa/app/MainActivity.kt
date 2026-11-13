@@ -73,17 +73,20 @@ class MoaController(activity: ComponentActivity) {
         private set
     var savedCards by mutableStateOf(emptyList<SavedFamilyCard>())
         private set
+    var libraryError by mutableStateOf<String?>(null)
+        private set
     var savedCurrentId by mutableStateOf<String?>(null)
         private set
     var notice by mutableStateOf("")
-    var voiceInput by mutableStateOf("")
+    var questionDraft by mutableStateOf("")
+        private set
     var demoMode by mutableStateOf(false)
         private set
     val canUseDemo = BuildConfig.DEBUG && !activity.packageManager.hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)
     private val soundscape = SoundscapeController(activity)
     private val speech = SpeechController(activity, onTranscript = { text ->
         if (state.stage == Stage.QUESTION && state.safety == Safety.ALLOWED) {
-            voiceInput = text.take(SessionEngine.MAX_QUESTION_LENGTH)
+            editQuestion(text)
             notice = "질문을 들었어요. 내용을 확인한 뒤 ‘질문 확인’을 눌러 주세요."
         }
     }, onStatus = { message -> notice = message })
@@ -100,8 +103,14 @@ class MoaController(activity: ComponentActivity) {
         soundscape.stop()
         engine.action()
         state = engine.state
-        if (state.stage != Stage.QUESTION) voiceInput = ""
+        if (state.stage != Stage.QUESTION && state.stage != Stage.PAUSED) questionDraft = ""
         notice = ""
+    }
+
+    fun editQuestion(text: String) {
+        if (state.stage == Stage.QUESTION && state.safety == Safety.ALLOWED) {
+            questionDraft = text.take(SessionEngine.MAX_QUESTION_LENGTH)
+        }
     }
 
     fun startDemo() {
@@ -126,7 +135,6 @@ class MoaController(activity: ComponentActivity) {
         if (safety != Safety.ALLOWED) {
             speech.stop()
             soundscape.stop()
-            voiceInput = ""
             notice = ""
         }
         engine.updateSafety(safety)
@@ -136,7 +144,6 @@ class MoaController(activity: ComponentActivity) {
     fun pause(reason: String = "보호자가 잠시 멈췄어요.") {
         speech.stop()
         soundscape.stop()
-        voiceInput = ""
         notice = ""
         engine.pause(reason)
         state = engine.state
@@ -147,7 +154,7 @@ class MoaController(activity: ComponentActivity) {
         soundscape.stop()
         engine.end()
         state = engine.state
-        voiceInput = ""
+        questionDraft = ""
         notice = ""
         savedCurrentId = null
     }
@@ -162,8 +169,6 @@ class MoaController(activity: ComponentActivity) {
     fun listen() {
         if (state.safety == Safety.ALLOWED && state.stage == Stage.QUESTION) {
             soundscape.stop()
-            // Repeated speech is a new input even after the prior text was edited.
-            voiceInput = ""
             speech.listen()
         }
     }
@@ -187,27 +192,41 @@ class MoaController(activity: ComponentActivity) {
             savedCurrentId = it.id
             refreshSaved()
             notice = "이 기기에 대화 카드를 저장했어요. 보관함에서 언제든 지울 수 있어요."
-        }.onFailure { notice = "카드를 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요." }
+        }.onFailure {
+            notice = "카드를 저장하지 못했어요. 보관함을 확인한 뒤 다시 시도해 주세요."
+            libraryError = "새 카드를 저장하지 못했어요. 기존 카드를 확인하거나 다시 불러와 주세요."
+        }
     }
 
     fun deleteSaved(id: String) {
-        if (state.safety != Safety.ALLOWED) return
+        if (state.safety != Safety.ALLOWED || state.stage == Stage.PAUSED) return
         runCatching { store.delete(id) }.onSuccess {
             if (savedCurrentId == id) savedCurrentId = null
             refreshSaved()
-        }.onFailure { notice = "카드를 지우지 못했어요. 다시 시도해 주세요." }
+        }.onFailure { libraryError = "카드를 지우지 못했어요. 보관함을 다시 불러와 주세요. 일부 카드가 손상된 경우 개별 삭제할 수 없어요." }
     }
 
     fun clearSaved() {
-        if (state.safety != Safety.ALLOWED) return
+        if (state.safety != Safety.ALLOWED || state.stage == Stage.PAUSED) return
         runCatching { store.clear() }.onSuccess {
             savedCurrentId = null
             refreshSaved()
-        }.onFailure { notice = "보관함을 비우지 못했어요. 다시 시도해 주세요." }
+        }.onFailure { libraryError = "보관함을 비우지 못했어요. 다시 시도해 주세요." }
     }
 
     private fun refreshSaved() {
-        runCatching { store.all() }.onSuccess { savedCards = it }.onFailure { notice = "보관함을 불러오지 못했어요." }
+        runCatching { store.all() }.onSuccess {
+            savedCards = it
+            libraryError = null
+        }.onFailure {
+            savedCards = emptyList()
+            libraryError = "보관함을 불러오지 못했어요. 기존 파일은 그대로 두었어요. 다시 불러오거나, 모두 지운 뒤 새로 시작할 수 있어요."
+        }
+    }
+
+    fun reloadSaved() {
+        if (state.safety != Safety.ALLOWED || state.stage == Stage.PAUSED) return
+        refreshSaved()
     }
 
     fun close() {
@@ -215,5 +234,7 @@ class MoaController(activity: ComponentActivity) {
         soundscape.close()
         monitor.close()
         engine.end()
+        state = engine.state
+        questionDraft = ""
     }
 }
